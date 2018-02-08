@@ -17,9 +17,6 @@
 #include "nrf24.h"
 #include "NrfMemoryMap.h"
 
-// TODO: debugging 
-#include "../MK_USART/mkuart.h"
-
 // Indicates if transmission is in progress
 volatile uint8_t TransmissionInProgress = 0;
 
@@ -664,4 +661,106 @@ void RADIO_EVENT(void)
 		// Tell listeners that we have received the data, make sure, however, that lenght is not 0
 		if(dataLength != 0 && ReceiverCallback) (*ReceiverCallback)(RXBuffer, dataLength);
 	}	
+}
+
+//////////////////////////////////////////////////////////////////////////
+// UTILITIES
+//////////////////////////////////////////////////////////////////////////
+
+// Helper to print register values
+void print(uint8_t* bufor, uint8_t len, void(*printNumber)(int number, int raddix), void(*printChar)(char))
+{
+	for(uint8_t i = 0; i < len; i++)
+		printNumber(bufor[i], 16);
+	printChar('\n');
+}
+
+// Prints out the device config
+// Parameters are UART methods: method to print a string
+//							    method to print a single character
+//								method to print a number in a given format (16 - hex, 2 - bin, etc.)
+void RadioPrintConfig(void(*printString)(char*), void(*printChar)(char), void(*printNumber)(int number, int raddix))
+{
+	uint8_t buf[5];
+	// TODO: PSTR here
+
+	RadioReadRegister(CONFIG, buf, 1);
+	printString("CONFIG: ");
+	print(buf, 1, printNumber, printChar);
+	RadioReadRegister(EN_AA, buf, 1);
+	printString("EN_AA: ");
+	print(buf, 1, printNumber, printChar);
+	RadioReadRegister(EN_RXADDR, buf, 1);
+	printString("EN_RXADDR: ");
+	print(buf, 1, printNumber, printChar);
+	RadioReadRegister(SETUP_AW, buf, 1);
+	printString("SETUP_AW: ");
+	print(buf, 1, printNumber, printChar);
+	RadioReadRegister(SETUP_RETR, buf, 1);
+	printString("SETUP_RETR: ");
+	print(buf, 1, printNumber, printChar);
+	RadioReadRegister(RF_CH, buf, 1);
+	printString("RF_CH: ");
+	print(buf, 1, printNumber, printChar);
+	RadioReadRegister(RF_SETUP, buf, 1);
+	printString("RF_SETUP: ");
+	print(buf, 1, printNumber, printChar);
+	RadioReadRegister(STATUS, buf, 1);
+	printString("STATUS: ");
+	print(buf, 1, printNumber, printChar);
+	RadioReadRegister(OBSERVE_TX, buf, 1);
+	printString("OBSERVE_TX: ");
+	print(buf, 1, printNumber, printChar);
+	RadioReadRegister(RPD, buf, 5);
+	printString("RPD: ");
+	print(buf, 1, printNumber, printChar);
+	RadioReadRegister(RX_ADDR_P0, buf, 5);
+	printString("RX_ADDR_P0: ");
+	print(buf, 5, printNumber, printChar);
+	RadioReadRegister(RX_ADDR_P1, buf, 5);
+	printString("RX_ADDR_P1: ");
+	print(buf, 5, printNumber, printChar);
+	RadioReadRegister(RX_ADDR_P2, buf, 1);
+	printString("RX_ADDR_P2: ");
+	print(buf, 1, printNumber, printChar);
+	RadioReadRegister(RX_ADDR_P3, buf, 1);
+	printString("RX_ADDR_P3: ");
+	print(buf, 1, printNumber, printChar);
+	RadioReadRegister(RX_ADDR_P4, buf, 1);
+	printString("RX_ADDR_P4: ");
+	print(buf, 1, printNumber, printChar);
+	RadioReadRegister(RX_ADDR_P5, buf, 1);
+	printString("RX_ADDR_P5: ");
+	print(buf, 1, printNumber, printChar);
+	RadioReadRegister(TX_ADDR, buf, 5);
+	printString("TX_ADDR: ");
+	print(buf, 5, printNumber, printChar);
+	RadioReadRegister(RX_PW_P0, buf, 1);
+	printString("RX_PW_P0: ");
+	print(buf, 1, printNumber, printChar);
+	RadioReadRegister(RX_PW_P1, buf, 1);
+	printString("RX_PW_P1: ");
+	print(buf, 1, printNumber, printChar);
+	RadioReadRegister(RX_PW_P2, buf, 1);
+	printString("RX_PW_P2: ");
+	print(buf, 1, printNumber, printChar);
+	RadioReadRegister(RX_PW_P3, buf, 1);
+	printString("RX_PW_P3: ");
+	print(buf, 1, printNumber, printChar);
+	RadioReadRegister(RX_PW_P4, buf, 1);
+	printString("RX_PW_P4: ");
+	print(buf, 1, printNumber, printChar);
+	RadioReadRegister(RX_PW_P5, buf, 1);
+	printString("RX_PW_P5: ");
+	print(buf, 1, printNumber, printChar);
+	RadioReadRegister(FIFO_STATUS, buf, 1);
+	printString("FIFO_STATUS: ");
+	print(buf, 1, printNumber, printChar);
+	RadioReadRegister(DYNPD, buf, 1);
+	printString("DYNPD: ");
+	print(buf, 1, printNumber, printChar);
+	RadioReadRegister(FEATURE, buf, 1);
+	printString("FEATURE: ");
+	print(buf, 1, printNumber, printChar);
+
 }

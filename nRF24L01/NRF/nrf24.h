@@ -63,7 +63,7 @@ void RadioSetDynamicPayload(uint8_t dataPipe, uint8_t onOff);
 void RadioLoadPayload(uint8_t* data, uint8_t length);
 void RadioSend(uint8_t* data);
 void RADIO_EVENT(void);
-
+void RadioPrintConfig(void(*printString)(char*), void(*printChar)(char), void(*printNumber)(int number, int raddix));
 //////////////////////////////////////////////////////////////////////////
 // Variables
 //////////////////////////////////////////////////////////////////////////
