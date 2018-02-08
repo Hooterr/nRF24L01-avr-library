@@ -27,6 +27,11 @@
 *.so
 *.so.*
 *.dylib
+# Atmel Studio filed
+*.atsln
+*.xml
+*.cproj
+*.atsuo
 
 # Executables
 *.exe
