@@ -19,7 +19,8 @@ void SpiInitialize(void)
 	// MISO input
 	DDR(MISO_PORT) &= ~(1<<MISO);
 	
-	//DDRB |= (1<<PB2);
+	// SS need to be output
+	DDRB |= (1<<PB2);
 
 	// For hardware SPI setup the module
 	#if SOFT_SPI == 0

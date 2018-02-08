@@ -15,7 +15,7 @@
 
 
 // 1 - mega32
-// 2 - mega32p
+// 2 - mega328p
 #define CPU 2
 
 // Makes port, pin and ddr access easier

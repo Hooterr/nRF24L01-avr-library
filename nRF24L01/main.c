@@ -7,6 +7,7 @@
 #include "Common/Common.h"
 #include <avr/io.h>
 #include <string.h>
+#include <avr/interrupt.h>
 
 #include "NRF/nrf24.h"
 #include "MK_USART/mkuart.h"
@@ -28,10 +29,11 @@ int main(void)
 	
     USART_Init(__UBRR);
     register_uart_str_rx_event_callback(UsartDataReceived);
+	sei();
 	
 	role = RECEIVER;
 	RadioEnterRxMode();
-	uart_puts("\tDevice is now in transmitter mode.\n\t'set tx - transmitter mode\n\t'set rx' - receiver mode\n");
+	uart_puts("Device is now in transmitter mode.\n\t'set tx' - transmitter mode\n\t'set rx' - receiver mode\n");
 
 	while (1) 
     {
@@ -59,13 +61,13 @@ void UsartDataReceived(char* data)
 	{
 		role = RECEIVER;
 		RadioEnterRxMode();
-		uart_puts("\tDevice is now in receiver mode.\n\t'set tx - transmitter mode\n\t'set rx' - receiver mode\n");
+		uart_puts("Device is now in receiver mode.\n\t'set tx - transmitter mode\n\t'set rx' - receiver mode\n");
 	}
 	else if(strcmp(data, "set tx") == 0)
 	{
 		role = TRANSMITTER;
 		RadioEnterTxMode();
-		uart_puts("\tDevice is now in transmitter mode.\n\t'set tx - transmitter mode\n\t'set rx' - receiver mode\n");
+		uart_puts("Device is now in transmitter mode.\n\t'set tx - transmitter mode\n\t'set rx' - receiver mode\n");
 	}
 	else
 	{

@@ -12,8 +12,8 @@
 // Compile-time settings
 //////////////////////////////////////////////////////////////////////////
 
-// 0	- soft SPI
-// !=0	- hardware SPI
+// != 0	- soft SPI
+// 0	- hardware SPI
 #define SOFT_SPI 0
 
 #define MOSI_PORT B

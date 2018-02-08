@@ -66,13 +66,13 @@ void RadioConfig(void)
 	RadioSetTransmitterAddress(PSTR("TEST1"));
 	
 	// Set receiver address for data pipe 0
-	RadioSetReceiverAddress(RX_ADDR_P0, PSTR("TEST1"));
+	RadioSetReceiverAddress(DATA_PIPE_0, PSTR("TEST1"));
 	
 	// You can configure data pipes like this...
-	RadioEnableDataPipe(DATA_PIPE_0);
-	RadioEnableDataPipe(DATA_PIPE_1);
-	RadioEnableAutoAck(DATA_PIPE_0);
-	RadioEnableAutoAck(DATA_PIPE_1);
+	//RadioEnableDataPipe(DATA_PIPE_0);
+	//RadioEnableAutoAck(DATA_PIPE_0);
+	//RadioEnableDataPipe(DATA_PIPE_1);
+	//RadioEnableAutoAck(DATA_PIPE_1);
 	
 	// Or like this...
 	RadioConfigDataPipe(0, 1, 1);
@@ -201,7 +201,7 @@ void RadioSetReceiverAddress(uint8_t dataPipe, const char* address)
 	
 	// RX_ADDR_PX is the registry we need to write the address to.
 	// RX_ADDR_P0 is 0x0A, RX_ADDR_P1 is 0x0B
-	dataPipe += 0x0A;
+	uint8_t registerAddress = dataPipe + 0x0A;
 	
 	// Buffer in RAM to read data from flash
 	char RAM_RxAddress[RX_ADDRESS_LENGTH];
@@ -213,12 +213,12 @@ void RadioSetReceiverAddress(uint8_t dataPipe, const char* address)
 		{
 			RAM_RxAddress[i] = pgm_read_byte(address++);
 		}
-		RadioWriteRegister(dataPipe, (uint8_t*) RAM_RxAddress, RX_ADDRESS_LENGTH);
+		RadioWriteRegister(registerAddress, (uint8_t*) RAM_RxAddress, RX_ADDRESS_LENGTH);
 	}
 	// Pipes 2-5 take only 1 byte address because the rest is taken from pipe 1 address
 	else
 	{	RAM_RxAddress[0] = pgm_read_byte(address);
-		RadioWriteRegister(dataPipe, (uint8_t*)RAM_RxAddress, 1);
+		RadioWriteRegister(registerAddress, (uint8_t*)RAM_RxAddress, 1);
 	}
 }
 
@@ -425,7 +425,7 @@ void RadioDisableAck(uint8_t dataPipe)
 	uint8_t en_aa = RadioReadRegisterSingle(EN_AA);
 	
 	// Clear the bit to disable auto ACK on this data pipe
-	en_aa&= ~(1 << dataPipe);
+	en_aa &= ~(1 << dataPipe);
 	
 	// Save the value to the device
 	RadioWriteRegisterSingle(EN_AA, en_aa);
