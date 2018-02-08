@@ -55,7 +55,7 @@ void RadioConfigureInterrupts(void);
 void RadioEnableAutoAck(uint8_t dataPipe);
 void RadioDisableAck(uint8_t dataPipe);
 void RadioConfigDataPipe(uint8_t dataPipe, uint8_t onOff, uint8_t AutoAckOnOff);
-void RadioSetPayloadWidth(uint8_t dataPipe, uint8_t width);
+void RadioSetStaticPayloadWidth(uint8_t dataPipe, uint8_t width);
 void RadioConfigRetransmission(uint8_t time, uint8_t ammount);
 void RadioSetSpeed(uint8_t speed);
 void RadioSetPower(uint8_t power);
@@ -79,7 +79,6 @@ extern volatile uint8_t ReceivedDataReady;
 #define CSN_LOW PORT(CSN_PORT) &= ~(1<<CSN)
 #define CSN_HIGH PORT(CSN_PORT) |= (1<<CSN)
 
-uint8_t ValidateDataPipeAddress(uint8_t dataPipe);
 #define DATA_RECEIVED_MASK (1<<RX_DR)
 #define DATA_SENT_MASK (1<<TX_DS)
 #define ACK_RECEIVED_MASK (1<<TX_DS)

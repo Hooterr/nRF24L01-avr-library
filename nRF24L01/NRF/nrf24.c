@@ -13,10 +13,11 @@
 #include <avr/pgmspace.h>
 #include <string.h>
 
-#include "../SPI/spi.h"
+#include "SPI/spi.h"
 #include "nrf24.h"
 #include "NrfMemoryMap.h"
 
+// TODO: debugging 
 #include "../MK_USART/mkuart.h"
 
 // Indicates if transmission is in progress
@@ -182,7 +183,7 @@ void RadioConfigureInterrupts(void)
 //		 If the address you want to set exceeds this limit, LSBytes are skipped 
 void RadioSetTransmitterAddress(const char* address)
 {
-	if (address == nullptr)
+	if (address == NULL)
 		return;
 	// Buffer in RAM to save data read from the flash memory
 	char RAM_TxAddress[TX_ADDRESS_LENGTH];
@@ -231,7 +232,7 @@ uint8_t IsReceivedDataReady(void)
 	return (status & (1<<RX_DR));
 }
 
-// Checks the TX_DS flag, which indicates success of the transmission, in status registry
+// Checks the TX_DS flag status, which indicates if transmission was successful
 uint8_t IsDataSentSuccessful(void)
 {
 	uint8_t status = RadioReadRegisterSingle(STATUS);
@@ -239,16 +240,21 @@ uint8_t IsDataSentSuccessful(void)
 }
 
 // Enables the CRC data package validation
+// Useful if you want to send important data. Makes transmission slower but more reliable
 void RadioEnableCRC(void)
 {
 	// Get the current config so we can modify it
 	uint8_t config = RadioReadRegisterSingle(CONFIG);
+	
+	// Enable CRC
 	config |= (1<<EN_CRC);
+	
+	// Save it to the device
 	RadioWriteRegisterSingle(CONFIG, config);
 }
 
 // Sets the CRC length
-// Legal values: 1, 2. Any other will be discarded 
+// Legal values: 1, 2. Any other will be discarded.
 void RadioSetCRCLength(uint8_t crcLength)
 {
 	if(crcLength > 2 || crcLength < 1)
@@ -256,6 +262,7 @@ void RadioSetCRCLength(uint8_t crcLength)
 		
 	// Get the current config so we can modify it
 	uint8_t config = RadioReadRegisterSingle(CONFIG);
+	
 	// For 1 byte length:  CRCO byte should be 0
 	// For 2 bytes length: CRCO byte should be 1
 	config |= ((crcLength - 1) << CRCO);
@@ -264,19 +271,30 @@ void RadioSetCRCLength(uint8_t crcLength)
 // Powers up the radio
 void RadioPowerUp(void)
 {
+	// Get the current config so we can modify it
 	uint8_t config = RadioReadRegisterSingle(CONFIG);
+	
+	// Set PWR_UP and CE to enter Standby-I
 	config |= (1<<PWR_UP);
+	CE_HIGH;
+	
+	// Write this config to the device
 	RadioWriteRegisterSingle(CONFIG, config);
 	
 	// Device needs 1.5ms to power up
 	_delay_us(1500);
 }
 
-//Powers down the radio
+// Powers down the device
 void RadioPowerDown(void)
 {
+	// Get the current config so we can modify it
 	uint8_t config = RadioReadRegisterSingle(CONFIG);
+	
+	// Clearing PWR_UP bit will make the device enter Power Down mode (data sheet 6.1.1 Figure 3)
 	config &= ~(1<<PWR_UP);
+	
+	// Save this config to the device
 	RadioWriteRegisterSingle(CONFIG, config);
 	
 	// Optional: clear device's data buffers 
@@ -287,23 +305,27 @@ void RadioPowerDown(void)
 // Sets the role of the module to the transmitter
 void RadioSetRoleTransmitter(void)
 {
+	// Get the current config so we can modify it
 	uint8_t config = RadioReadRegisterSingle(CONFIG);
-	config &= ~(1<<PRIM_RX);
-	RadioWriteRegisterSingle(CONFIG, config);
 	
-	// High state on CE line prevents the device from entering Standby-I
-	CE_HIGH;
-	_delay_us(130);
+	// Clear PRIM_RX to set transmitter mode
+	config &= ~(1<<PRIM_RX);
+	
+	// Save this config to the device
+	RadioWriteRegisterSingle(CONFIG, config);
 }
 
 // Sets the role of the module to the receiver
 void RadioSetRoleReceiver(void)
 {
+	// Get the current config so we can modify it
 	uint8_t config = RadioReadRegisterSingle(CONFIG);
+	
+	// Set PRIM_RX to set transmitter mode
 	config |= (1<<PRIM_RX);
+	
+	// Save this config to the device
 	RadioWriteRegisterSingle(CONFIG, config);
-	CE_HIGH;
-	_delay_us(130);
 }
 
 // Switches into transmitter mode
@@ -322,8 +344,17 @@ void RadioEnterTxMode(void)
 // Switches into receiver mode
 void RadioEnterRxMode(void)
 {
-	RadioPowerUp();
 	RadioSetRoleReceiver();
+	RadioPowerUp();
+	
+	// High state on CE line will make the device enter proper RX mode
+	// NOTE: This state if power consuming (see [data sheet]Radio control state diagram for more information)
+	CE_HIGH;
+	
+	// Delay required by the device
+	_delay_us(130);
+	
+	// Set initial values
 	TransmissionInProgress = 0;
 	ReceivedDataReady = 0;
 }
@@ -342,8 +373,13 @@ void RadioEnableDataPipe(uint8_t dataPipe)
 	if (dataPipe > 5)
 		dataPipe = 5;
 	
+	// Get the current value so we can modify it
 	uint8_t en_rxaddr = RadioReadRegisterSingle(EN_RXADDR);
+	
+	// Write one to enable this data pipe
 	en_rxaddr |= (1 << dataPipe);
+	
+	// Save the value to the device
 	RadioWriteRegisterSingle(EN_RXADDR, en_rxaddr);
 }
 
@@ -352,10 +388,15 @@ void RadioDisableDataPipe(uint8_t dataPipe)
 {
 	// Make sure we got a valid data pipe number
 	if (dataPipe > 5)
-	dataPipe = 5;
+		dataPipe = 5;
 	
+	// Get the current value so we can modify it
 	uint8_t en_rxaddr = RadioReadRegisterSingle(EN_RXADDR);
+	
+	// Clear the bit to enable this data pipe
 	en_rxaddr &= ~(1 << dataPipe);
+	
+	// Save the value to the device
 	RadioWriteRegisterSingle(EN_RXADDR, en_rxaddr);
 }
 
@@ -364,10 +405,15 @@ void RadioEnableAutoAck(uint8_t dataPipe)
 {
 	// Make sure we got a valid data pipe number
 	if (dataPipe > 5)
-	dataPipe = 5;
+		dataPipe = 5;
 		
+	// Get the current value so we can modify it
 	uint8_t en_aa = RadioReadRegisterSingle(EN_AA);
-	en_aa |= (1 << dataPipe);
+	
+	// Write one to enable auto ACK on this data pipe
+	en_aa|= (1 << dataPipe);
+	
+	// Save the value to the device
 	RadioWriteRegisterSingle(EN_AA, en_aa);
 }
 
@@ -376,10 +422,15 @@ void RadioDisableAck(uint8_t dataPipe)
 {
 	// Make sure we got a valid data pipe number
 	if (dataPipe > 5)
-	dataPipe = 5;
+		dataPipe = 5;
 	
+	// Get the current value so we can modify it
 	uint8_t en_aa = RadioReadRegisterSingle(EN_AA);
-	en_aa &= ~(1 << dataPipe);
+	
+	// Clear the bit to disable auto ACK on this data pipe
+	en_aa&= ~(1 << dataPipe);
+	
+	// Save the value to the device
 	RadioWriteRegisterSingle(EN_AA, en_aa);
 }
 
@@ -397,16 +448,18 @@ void RadioConfigDataPipe(uint8_t dataPipe, uint8_t onOff, uint8_t AutoAckOnOff)
 		RadioDisableAck(dataPipe);
 }
 
-// Sets the payload width on the specified data pipe
-void RadioSetPayloadWidth(uint8_t dataPipe, uint8_t width)
+// Sets static payload width on the specified data pipe
+void RadioSetStaticPayloadWidth(uint8_t dataPipe, uint8_t width)
 {
-	if (dataPipe > 5)
+	// Make sure we got a valid data pipe number
+	if(dataPipe > 5)
 		dataPipe = 5;
-	// Simple trick: RX_PW_P0 address is 11, if the user enter data pipe number X, X+11 will make a valid registry address
+	// Simple trick: RX_PW_P0 address is 11, if the user enters data pipe number X, X+11 will make a valid registry address
 	// See device data sheet, section 9.1
 	dataPipe += 11;
 	
-	RadioWriteRegisterSingle(dataPipe, 0x1F & width);
+	// Two MSB must always be 0
+	RadioWriteRegisterSingle(dataPipe, 0b00111111 & width);
 }
 
 // Configures retransmission parameters
@@ -421,8 +474,13 @@ void RadioConfigRetransmission(uint8_t time, uint8_t ammount)
 void RadioSetSpeed(uint8_t speed)
 {
 	// TODO: fix
+	// Get the current setup so we can modify it
 	uint8_t rfSetup = RadioReadRegisterSingle(RF_SETUP);
+	
+	// Use mask to write bits correctly
 	rfSetup = ((rfSetup & SPEED_MASK) | speed);
+	
+	// Write the value to the device
 	RadioWriteRegisterSingle(RF_SETUP, rfSetup);
 }
 
@@ -431,8 +489,13 @@ void RadioSetSpeed(uint8_t speed)
 void RadioSetPower(uint8_t power)
 {
 	// TODO: fix
+	// Get the current setup so we can modify it
 	uint8_t rfSetup = RadioReadRegisterSingle(RF_SETUP);
+	
+	// Use mask to write bits correctly
 	rfSetup = ((rfSetup & POWER_MASK) | power);
+	
+	// Write the value to the device
 	RadioWriteRegisterSingle(RF_SETUP, rfSetup);
 }
 
@@ -442,22 +505,32 @@ void RadioSetDynamicPayload(uint8_t dataPipe, uint8_t onOff)
 	// Data validation
 	if(dataPipe > 5)
 		dataPipe = 5;
-	if(onOff > 1)
+	if(onOff)
 		onOff = 1;
-
+	
+	// Get the current config so we can modify it
 	uint8_t dynpd = RadioReadRegisterSingle(DYNPD);
+	
+	// Write one to enable; zero to disable dynamic payload with
 	dynpd |= (onOff << dataPipe);
+	
+	// Write value to the device
 	RadioWriteRegisterSingle(DYNPD, dynpd);
 	
 	// To use dynamic payload length it must be enabled in feature registry
 	
+	// Get current FEATURE registry value to modify
 	uint8_t feature = RadioReadRegisterSingle(FEATURE);
+	
+	// If function was called to enable dynamic width, enable it in feature registry
 	if (onOff)
 		feature |= (1 << EN_DPL);
 		
 	// If all the data pipes have dynamic payload length disabled, disable it in feature registry
 	else if (dynpd == 0)
 		feature &= ~(1<<EN_DPL);
+		
+	// Write the value to the device
 	RadioWriteRegisterSingle(FEATURE, feature);
 }
 
@@ -465,23 +538,32 @@ void RadioSetDynamicPayload(uint8_t dataPipe, uint8_t onOff)
 void RadioLoadPayload(uint8_t* data, uint8_t length)
 {	
 	CSN_LOW;
+	
+	// To write data to TX FIFO you need to start transmission with W_TX_PAYLOAD
 	SpiShift(W_TX_PAYLOAD);
+	
+	// Write all the data
 	for(uint8_t i = 0; i < length; i++)
 		SpiShift(data[i]++);
+	
 	CSN_HIGH;
 }
 
 // Sends data
+// NOTE: Make sure the device is in TX mode before calling this method
 void RadioSend(uint8_t* data)
 {
-	// Wait for transmission to end
+	// Wait for previous transmission to end
 	if (TransmissionInProgress == 1)
 		return;
 		
 	// Now we can send data
 	TransmissionInProgress = 1;
 	
+	// Get the length of the data 
 	uint8_t dataLength = strlen((char*)data);
+	
+	// Make sure it does not exceed the limit
 	if (dataLength > MAXIMUM_PAYLOAD_SIZE) dataLength = MAXIMUM_PAYLOAD_SIZE;
 
 	// Presuming device is in Standby-II
@@ -507,7 +589,7 @@ void RADIO_EVENT(void)
 		RadioClearTX();
 		
 		// Clear IRQ flags
-		status |= IRQ_CLEAR_MASK;
+		status |= (1<< MAX_RT);
 		RadioWriteRegisterSingle(STATUS, status);
 	}
 	
@@ -518,9 +600,8 @@ void RADIO_EVENT(void)
 		// TOCO: ACK with payload handling, just clear the buffer from now
 		RadioClearRX();
 		
-		// Clear flags
-		// TODO: make a separate function for this
-		status |= IRQ_CLEAR_MASK;
+		// Clear flag
+		status |= (1<<TX_DS);
 		RadioWriteRegisterSingle(STATUS, status);
 	}
 	
@@ -529,15 +610,19 @@ void RADIO_EVENT(void)
 	{
 		ReceivedDataReady = 1;
 	}
+	
+	
 	if (ReceivedDataReady)
 	{
+		// Indicate we have received data
 		ReceivedDataReady = 0;
+		
 		// Prepare for reading data
 		uint8_t fifoStatus;
 		uint8_t dataLength;
 		do 
 		{
-			// Clears flag
+			// Clear flag
 			RadioWriteRegisterSingle(STATUS, (1<<RX_DR));
 			
 			CSN_LOW;
@@ -547,46 +632,36 @@ void RADIO_EVENT(void)
 			dataLength = SpiShift(NOP);
 			CSN_HIGH;
 			
-			// If data's too big for the buffer discard it
-			if( dataLength > MAXIMUM_PAYLOAD_SIZE) break;
+			// If data's too big for the buffer discard it and clear the device buffer
+			if( dataLength > MAXIMUM_PAYLOAD_SIZE)
+			{ 
+				RadioClearRX();
+				break;
+			}
 			
 			// Read payload from the device
 			CSN_LOW;
 			SpiShift(R_RX_PAYLOAD);
 			uint8_t i;
 			for(i = 0; i < dataLength; i++)
-			{
 				RXBuffer[i] = SpiShift(NOP);
-			}
+			CSN_HIGH;
+			
+			// Add the null character at the end (useful for transmitting strings)
 			RXBuffer[i] = '\0';
 			
-			CSN_HIGH;
 			// Clear the device buffer
 			// TODO: triple buffering
 			RadioClearRX();
 			
+			// TODO: There may be data in buffer that come from different data pipes
 			fifoStatus = RadioReadRegisterSingle(FIFO_STATUS);
 		} 
 			// Read until RX is empty
 			// TODO: triple buffering? or maybe another solution
 			while ((fifoStatus & (1<<RX_EMPTY)) == 0);
 
-		// Tell listeners that we have received the data
-		// TODO: 0 length data handling
+		// Tell listeners that we have received the data, make sure, however, that lenght is not 0
 		if(dataLength != 0 && ReceiverCallback) (*ReceiverCallback)(RXBuffer, dataLength);
 	}	
-}
-
-//////////////////////////////////////////////////////////////////////////
-
-// Validates data pipe number
-uint8_t ValidateDataPipeAddress(uint8_t dataPipe)
-{
-	// Make sure the dataPipe is valid (it should be between P0 and P5 address)
-	if(dataPipe > RX_ADDR_P5) 
-		return RX_ADDR_P5;
-	else if(dataPipe < RX_ADDR_P0) 
-		return RX_ADDR_P0;
-	else
-		return dataPipe;
 }
