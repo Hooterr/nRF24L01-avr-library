@@ -1,0 +1,54 @@
+/*
+ * spi.h
+ *
+ * Created: 26/01/2018 19:54:43
+ *  Author: maxus
+ */ 
+
+#ifndef SPI_H_
+#define SPI_H_
+
+//////////////////////////////////////////////////////////////////////////
+// Compile-time settings
+//////////////////////////////////////////////////////////////////////////
+
+// 0	- soft SPI
+// !=0	- hardware SPI
+#define SOFT_SPI 0
+
+#define MOSI_PORT B
+#define MOSI 3
+
+#define MISO_PORT B
+#define MISO 4
+
+#define SCK_PORT B
+#define SCK 5
+
+//////////////////////////////////////////////////////////////////////////
+// Helper macros
+//////////////////////////////////////////////////////////////////////////
+
+#if SOFT_SPI == 1
+
+#define SCK_0 PORT(SCK_PORT) &= ~(1<<SCK)
+#define SCK_1 PORT(SCK_PORT) |= (1<<SCK)
+
+#define MOSI_0 PORT(MOSI_PORT) &= ~(1<<MOSI)
+#define MOSI_1 PORT(MOSI_PORT) |= (1<<MOSI)
+
+#define MISO_CHECK !(PIN(MISO_PORT) & (1<<MISO))
+
+#endif
+
+//////////////////////////////////////////////////////////////////////////
+// Methods
+//////////////////////////////////////////////////////////////////////////
+
+// Initializes SPI
+void SpiInitialize(void);
+
+// Fast shift
+uint8_t SpiShift(uint8_t data);
+
+#endif /* SPI_H_ */
