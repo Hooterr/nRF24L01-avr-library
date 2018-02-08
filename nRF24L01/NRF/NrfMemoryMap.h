@@ -165,4 +165,12 @@
 #define PTX 0x00
 
 #define MAXIMUM_PAYLOAD_SIZE 32
+
+#define DATA_PIPE_0 0
+#define DATA_PIPE_1 1
+#define DATA_PIPE_2 2
+#define DATA_PIPE_3 3
+#define DATA_PIPE_4 4
+#define DATA_PIPE_5 5
+
 #endif /* NRFMEMORYMAP_H_ */

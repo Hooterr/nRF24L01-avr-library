@@ -17,17 +17,18 @@
 #include "nrf24.h"
 #include "NrfMemoryMap.h"
 
-
 #include "../MK_USART/mkuart.h"
 
-
+// Indicates if transmission is in progress
 volatile uint8_t TransmissionInProgress = 0;
-volatile uint8_t RX_flag = 0;
 
-// Receiver buffer
+// Indicates if any data has been received
+volatile uint8_t ReceivedDataReady = 0;
+
+// Buffer for received data
 uint8_t RXBuffer[MAXIMUM_PAYLOAD_SIZE + 1];
 
-// Callback pointer
+// Pointer to a callback function defined by the user
 static void (*ReceiverCallback)(uint8_t*, uint8_t);
 
 // Registers callback function
@@ -36,40 +37,76 @@ void RegisterRadioCallback(void (*callback)(uint8_t*, uint8_t))
 	ReceiverCallback = callback;
 }
 
+// Initializes the device and configures it ready to use
 void RadioInitialize(void)
 {
+	// SPI is required to communicate with the device
 	SpiInitialize();
 	
 	// CE and CSN - outputs
 	DDR(CE_PORT) |= (1<<CE);
 	DDR(CSN_PORT) |= (1<<CSN);
 	
+	// CE does not really matter here but set it anyway
 	CE_LOW;
+	
+	// CSN is SS pin, we're not talking to the device right now so set it high
 	CSN_HIGH;
 	
+	// Configure the device ready to use
 	RadioConfig();
 }
 
-// Configures the device with the most common settings
+// Configures the device with the most common settings, and settings defined in config file
 void RadioConfig(void)
 {
-	RadioPowerUp();
+	// Device registers can be read and set even though the device is in power down mode
+	// Useful for battery powered devices
+	RadioPowerDown();
+	
+	// Device will send data on this address
 	RadioSetTransmitterAddress(PSTR("TEST1"));
+	
+	// Set receiver address for data pipe 0
 	RadioSetReceiverAddress(RX_ADDR_P0, PSTR("TEST1"));
-	RadioWriteRegisterSingle(CONFIG, RADIO_CONFIG);
+	
+	// You can configure data pipes like this...
+	RadioEnableDataPipe(DATA_PIPE_0);
+	RadioEnableDataPipe(DATA_PIPE_1);
+	RadioEnableAutoAck(DATA_PIPE_0);
+	RadioEnableAutoAck(DATA_PIPE_1);
+	
+	// Or like this...
 	RadioConfigDataPipe(0, 1, 1);
 	RadioConfigDataPipe(1, 1, 1);
+	
+	// Payload width can be either static or dynamic 
+	RadioSetDynamicPayload(DATA_PIPE_0, 1);
+	RadioSetDynamicPayload(DATA_PIPE_1, 1);
+	
+	// Common for all the data pipes
 	RadioEnableCRC();
 	RadioSetCRCLength(1);
+	
+	// Retransmission settings
+	// NOTE (copied from data sheet): If the ACK payload is more than 15 byte in 2Mbps mode the
+	// ARD must be 500?S or more, if the ACK payload is more than 5byte in 1Mbps mode the ARD must be
+	// 500?S or more. In 250kbps mode (even when the payload is not in ACK) the ARD must be 500?S or more.
 	RadioConfigRetransmission(ARD_US_500, ARC_1);
 	
+	RadioConfigureInterrupts();
+	
+	// Power and speed settings
+	// 0DBM is more powerful than -18DBM (physics)
 	RadioSetPower(POWER_DBM_0);
 	RadioSetSpeed(MBPS_1);
-	
-	RadioSetDynamicPayload(0, 1);	
-	RadioSetDynamicPayload(1, 1);
+
+	// Radio channel or the frequency
+	// Device is frequency is equal to: 2.4GHz + (this method's argument value)MHz
+	// Here: 2.410 GHz
 	RadioSetChannel(10);
 	
+	// Clear device's data buffers 
 	RadioClearRX();
 	RadioClearTX();
 }
@@ -106,6 +143,7 @@ void RadioWriteRegister(uint8_t reg, uint8_t* value, uint8_t len)
 	CSN_HIGH;
 }
 
+// Writes a single-byte register
 void RadioWriteRegisterSingle(uint8_t reg, uint8_t value)
 {
 	CSN_LOW;
@@ -114,7 +152,8 @@ void RadioWriteRegisterSingle(uint8_t reg, uint8_t value)
 	CSN_HIGH;
 }
 
-// Clears TX fifo
+// Clears TX(transmitter) FIFO
+// The device can store 3 different payloads using the FirstInFirstOut(FIFO) principle 
 void RadioClearTX(void)
 {
 	CSN_LOW;
@@ -122,7 +161,7 @@ void RadioClearTX(void)
 	CSN_HIGH;	
 }
 
-// Clears RX fifo
+// Clears RX(receiver) FIFO
 void RadioClearRX(void)
 {
 	CSN_LOW;
@@ -130,11 +169,24 @@ void RadioClearRX(void)
 	CSN_HIGH;
 }
 
+// Configures interrupts
+void RadioConfigureInterrupts(void)
+{
+	// RADIO_CONFIG is defined based on whether the user wants to enable interrupts or not
+	RadioWriteRegisterSingle(CONFIG, RADIO_CONFIG);
+}
+
 // Sets the transmitter address 
-// USAGE: RadioSetTransmitterAddress(PSTR("MyAddress"))
+// USAGE: RadioSetTransmitterAddress(PSTR("Address"))
+// NOTE: Remember about address length you either defined in compile-time or set from the code
+//		 If the address you want to set exceeds this limit, LSBytes are skipped 
 void RadioSetTransmitterAddress(const char* address)
 {
+	if (address == nullptr)
+		return;
+	// Buffer in RAM to save data read from the flash memory
 	char RAM_TxAddress[TX_ADDRESS_LENGTH];
+	
 	for (uint8_t i = 0; i < TX_ADDRESS_LENGTH; i++)
 		RAM_TxAddress[i] = pgm_read_byte(address++);
 		
@@ -142,26 +194,32 @@ void RadioSetTransmitterAddress(const char* address)
 }
 
 // Sets the receiver address for the specified data pipe
-// USAGE: RadioSetReceiverAddress(PSTR("MyAddress"))
+// USAGE: RadioSetReceiverAddress(PSTR("Address"))
 void RadioSetReceiverAddress(uint8_t dataPipe, const char* address)
 {
-	dataPipe = ValidateDataPipeAddress(dataPipe);
+	// Make sure data pipe number is legal
+	if (dataPipe > 5)
+		dataPipe = 5;
 	
+	// RX_ADDR_PX is the registry we need to write the address to.
+	// RX_ADDR_P0 is 0x0A, RX_ADDR_P1 is 0x0B
+	dataPipe += 0x0A;
+	
+	// Buffer in RAM to read data from flash
 	char RAM_RxAddress[RX_ADDRESS_LENGTH];
 	
+	// Data pipe 0 and 1 take 3-5 bytes long addresses
 	if(dataPipe <= RX_ADDR_P1)
 	{
-		// Pipe 0 and pipe 1 take 3-5 bytes long addresses	
 		for(uint8_t i = 0; i < RX_ADDRESS_LENGTH; i++)
 		{
 			RAM_RxAddress[i] = pgm_read_byte(address++);
 		}
 		RadioWriteRegister(dataPipe, (uint8_t*) RAM_RxAddress, RX_ADDRESS_LENGTH);
 	}
+	// Pipes 2-5 take only 1 byte address because the rest is taken from pipe 1 address
 	else
-	{
-		// Pipes 2-5 take only 1 byte address because the rest is taken from pipe 1 address
-		RAM_RxAddress[0] = pgm_read_byte(address);
+	{	RAM_RxAddress[0] = pgm_read_byte(address);
 		RadioWriteRegister(dataPipe, (uint8_t*)RAM_RxAddress, 1);
 	}
 }
@@ -256,7 +314,7 @@ void RadioEnterTxMode(void)
 	RadioPowerUp();
 		
 	TransmissionInProgress = 0;
-	RX_flag = 0;
+	ReceivedDataReady = 0;
 	// NOTE: code above will make the device enter Standby-II
 	// OPTIONAL: Load FIFO with some dummy bytes to make the device enter TXMode (130us delay required)
 }
@@ -267,7 +325,7 @@ void RadioEnterRxMode(void)
 	RadioPowerUp();
 	RadioSetRoleReceiver();
 	TransmissionInProgress = 0;
-	RX_flag = 0;
+	ReceivedDataReady = 0;
 }
 
 // Sets the radio channel (radio frequency)
@@ -302,7 +360,7 @@ void RadioDisableDataPipe(uint8_t dataPipe)
 }
 
 // Enables auto ACK on the given data pipe
-void RadioEnableAck(uint8_t dataPipe)
+void RadioEnableAutoAck(uint8_t dataPipe)
 {
 	// Make sure we got a valid data pipe number
 	if (dataPipe > 5)
@@ -334,7 +392,7 @@ void RadioConfigDataPipe(uint8_t dataPipe, uint8_t onOff, uint8_t AutoAckOnOff)
 		RadioDisableDataPipe(dataPipe);
 		
 	if(AutoAckOnOff)
-		RadioEnableAck(dataPipe);
+		RadioEnableAutoAck(dataPipe);
 	else
 		RadioDisableAck(dataPipe);
 }
@@ -469,11 +527,11 @@ void RADIO_EVENT(void)
 	// Continuously check if there is any data to be read from the device
 	if(DATA_RECEIVED(status))
 	{
-		RX_flag = 1;
+		ReceivedDataReady = 1;
 	}
-	if (RX_flag)
+	if (ReceivedDataReady)
 	{
-		RX_flag = 0;
+		ReceivedDataReady = 0;
 		// Prepare for reading data
 		uint8_t fifoStatus;
 		uint8_t dataLength;

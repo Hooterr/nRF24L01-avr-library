@@ -9,7 +9,7 @@
 #define NRF24_H_
 
 //////////////////////////////////////////////////////////////////////////
-// SETUP
+// COMPILE-TIME SETTINGS
 //////////////////////////////////////////////////////////////////////////
 #define CE_PORT B
 #define CE 0
@@ -51,7 +51,8 @@ void RadioEnterRxMode(void);
 void RadioSetChannel(uint8_t channel);
 void RadioEnableDataPipe(uint8_t dataPipe);
 void RadioDisableDataPipe(uint8_t dataPipe);
-void RadioEnableAck(uint8_t dataPipe);
+void RadioConfigureInterrupts(void);
+void RadioEnableAutoAck(uint8_t dataPipe);
 void RadioDisableAck(uint8_t dataPipe);
 void RadioConfigDataPipe(uint8_t dataPipe, uint8_t onOff, uint8_t AutoAckOnOff);
 void RadioSetPayloadWidth(uint8_t dataPipe, uint8_t width);
@@ -67,8 +68,7 @@ void RADIO_EVENT(void);
 // Variables
 //////////////////////////////////////////////////////////////////////////
 extern volatile uint8_t TX_flag;
-extern volatile uint8_t RX_flag;
-
+extern volatile uint8_t ReceivedDataReady;
 
 //////////////////////////////////////////////////////////////////////////
 // HELPERS
