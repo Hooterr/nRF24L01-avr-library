@@ -17,6 +17,8 @@
 #include "nrf24.h"
 #include "NrfMemoryMap.h"
 
+#include "../MK_USART/mkuart.h"
+
 // Indicates if transmission is in progress
 volatile uint8_t TransmissionInProgress = 0;
 
@@ -75,8 +77,8 @@ void RadioConfig(void)
 	//RadioEnableAutoAck(DATA_PIPE_1);
 	
 	// Or like this...
-	RadioConfigDataPipe(0, 1, 1);
-	RadioConfigDataPipe(1, 1, 1);
+	RadioConfigDataPipe(DATA_PIPE_0, 1, 1);
+	RadioConfigDataPipe(DATA_PIPE_1, 1, 1);
 	
 	// Payload width can be either static or dynamic 
 	RadioSetDynamicPayload(DATA_PIPE_0, 1);
@@ -170,8 +172,14 @@ void RadioClearRX(void)
 // Configures interrupts
 void RadioConfigureInterrupts(void)
 {
+	// Get the current config so we can modify it
+	uint8_t config = RadioReadRegisterSingle(CONFIG);
+
 	// RADIO_CONFIG is defined based on whether the user wants to enable interrupts or not
-	RadioWriteRegisterSingle(CONFIG, RADIO_CONFIG);
+	config |= RADIO_CONFIG;
+	
+	// Save it to the device
+	RadioWriteRegisterSingle(CONFIG, config);
 }
 
 // Sets the transmitter address 
@@ -187,7 +195,7 @@ void RadioSetTransmitterAddress(const char* address)
 	
 	for (uint8_t i = 0; i < TX_ADDRESS_LENGTH; i++)
 		RAM_TxAddress[i] = pgm_read_byte(address++);
-		
+	
 	RadioWriteRegister(TX_ADDR, (uint8_t *) RAM_TxAddress, TX_ADDRESS_LENGTH);
 }
 
@@ -198,6 +206,9 @@ void RadioSetReceiverAddress(uint8_t dataPipe, const char* address)
 	// Make sure data pipe number is legal
 	if (dataPipe > 5)
 		dataPipe = 5;
+		
+	// TODO: address width setting
+	RadioWriteRegisterSingle(SETUP_AW, 0x03);
 	
 	// RX_ADDR_PX is the registry we need to write the address to.
 	// RX_ADDR_P0 is 0x0A, RX_ADDR_P1 is 0x0B
@@ -207,7 +218,7 @@ void RadioSetReceiverAddress(uint8_t dataPipe, const char* address)
 	char RAM_RxAddress[RX_ADDRESS_LENGTH];
 	
 	// Data pipe 0 and 1 take 3-5 bytes long addresses
-	if(dataPipe <= RX_ADDR_P1)
+	if(dataPipe <= DATA_PIPE_1)
 	{
 		for(uint8_t i = 0; i < RX_ADDRESS_LENGTH; i++)
 		{
@@ -263,6 +274,9 @@ void RadioSetCRCLength(uint8_t crcLength)
 	// For 1 byte length:  CRCO byte should be 0
 	// For 2 bytes length: CRCO byte should be 1
 	config |= ((crcLength - 1) << CRCO);
+	
+	// Save data to the device
+	RadioWriteRegisterSingle(CONFIG, config);
 }
 
 // Powers up the radio
@@ -291,6 +305,7 @@ void RadioPowerDown(void)
 	// Clearing PWR_UP bit will make the device enter Power Down mode (data sheet 6.1.1 Figure 3)
 	config &= ~(1<<PWR_UP);
 	
+	CE_LOW;
 	// Save this config to the device
 	RadioWriteRegisterSingle(CONFIG, config);
 	
@@ -329,6 +344,7 @@ void RadioSetRoleReceiver(void)
 void RadioEnterTxMode(void)
 {
 	// TODO: method name possibly misleading. Check the result of loading FIFO with dummy bytes enforce proper mode
+	RadioPowerDown();
 	RadioSetRoleTransmitter();
 	RadioPowerUp();
 		
@@ -341,6 +357,7 @@ void RadioEnterTxMode(void)
 // Switches into receiver mode
 void RadioEnterRxMode(void)
 {
+	RadioPowerDown();
 	RadioSetRoleReceiver();
 	RadioPowerUp();
 	
@@ -451,9 +468,10 @@ void RadioSetStaticPayloadWidth(uint8_t dataPipe, uint8_t width)
 	// Make sure we got a valid data pipe number
 	if(dataPipe > 5)
 		dataPipe = 5;
-	// Simple trick: RX_PW_P0 address is 11, if the user enters data pipe number X, X+11 will make a valid registry address
+	// Simple trick: RX_PW_P0 address is 11, if the user enters data pipe number X, 
+	//				 X+11 will make a valid registry address
 	// See device data sheet, section 9.1
-	dataPipe += 11;
+	dataPipe += 0x11;
 	
 	// Two MSB must always be 0
 	RadioWriteRegisterSingle(dataPipe, 0b00111111 & width);

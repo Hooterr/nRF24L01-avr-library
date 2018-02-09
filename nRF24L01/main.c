@@ -23,17 +23,18 @@ void RadioDataReceived(uint8_t* data, uint8_t dataLength);
 void UsartDataReceived(char* data);
 
 int main(void)
-{
+{    
+	USART_Init(__UBRR);
+	register_uart_str_rx_event_callback(UsartDataReceived);
+	sei();
+	
 	RadioInitialize();
 	RegisterRadioCallback(RadioDataReceived);
 	
-    USART_Init(__UBRR);
-    register_uart_str_rx_event_callback(UsartDataReceived);
-	sei();
-	
 	role = RECEIVER;
 	RadioEnterRxMode();
-	uart_puts("Device is now in transmitter mode.\n\t'set tx' - transmitter mode\n\t'set rx' - receiver mode\n");
+	RadioPrintConfig(uart_puts, uart_putc, uart_putint);
+	//uart_puts("Device is now in transmitter mode.\n\t'set tx' - transmitter mode\n\t'set rx' - receiver mode\n");
 
 	while (1) 
     {
