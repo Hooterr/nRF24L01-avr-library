@@ -53,6 +53,9 @@ void RadioInitialize(void)
 	// CSN is SS pin, we're not talking to the device right now so set it high
 	CSN_HIGH;
 	
+	// Start up delay
+	_delay_ms(100);
+	
 	// Configure the device ready to use
 	RadioConfig();
 }
@@ -344,10 +347,13 @@ void RadioSetRoleReceiver(void)
 void RadioEnterTxMode(void)
 {
 	// TODO: method name possibly misleading. Check the result of loading FIFO with dummy bytes enforce proper mode
-	RadioPowerDown();
 	RadioSetRoleTransmitter();
 	RadioPowerUp();
 		
+	// Make the device stay in TX mode
+	// TODO: power saving
+	CE_HIGH;
+	
 	TransmissionInProgress = 0;
 	ReceivedDataReady = 0;
 	// NOTE: code above will make the device enter Standby-II
@@ -357,7 +363,6 @@ void RadioEnterTxMode(void)
 // Switches into receiver mode
 void RadioEnterRxMode(void)
 {
-	RadioPowerDown();
 	RadioSetRoleReceiver();
 	RadioPowerUp();
 	
@@ -581,13 +586,13 @@ void RadioSend(uint8_t* data)
 	// Make sure it does not exceed the limit
 	if (dataLength > MAXIMUM_PAYLOAD_SIZE) dataLength = MAXIMUM_PAYLOAD_SIZE;
 
-	// Presuming device is in Standby-II
-	// TODO: 
-	RadioLoadPayload(data, dataLength);
-
 	// Keeping CE high makes the device stay in TX mode
 	// TODO: power saving mode
 	CE_HIGH;
+	
+	// Presuming device is in Standby-II
+	// TODO: 
+	RadioLoadPayload(data, dataLength);
 }
 
 // Main event function
@@ -597,15 +602,19 @@ void RADIO_EVENT(void)
 	// Pooling mode for now
 	uint8_t status = RadioReadRegisterSingle(STATUS);
 	
+	//uart_putint(status, 16);
+	//uart_putc('\n');
+	//_delay_ms(100);
+	
 	// Sending data failed
 	// TODO: handling this event
 	if (MAXIMUM_RETRANSMISSIONS_REACHED(status))
 	{
-		RadioClearTX();
-		
 		// Clear IRQ flags
 		status |= (1<< MAX_RT);
 		RadioWriteRegisterSingle(STATUS, status);
+		
+		RadioClearTX();
 	}
 	
 	// Check if sending data was successful
