@@ -347,6 +347,7 @@ void RadioSetRoleReceiver(void)
 void RadioEnterTxMode(void)
 {
 	// TODO: method name possibly misleading. Check the result of loading FIFO with dummy bytes enforce proper mode
+	RadioPowerDown();
 	RadioSetRoleTransmitter();
 	RadioPowerUp();
 		
@@ -363,6 +364,7 @@ void RadioEnterTxMode(void)
 // Switches into receiver mode
 void RadioEnterRxMode(void)
 {
+	RadioPowerDown();
 	RadioSetRoleReceiver();
 	RadioPowerUp();
 	
@@ -615,6 +617,7 @@ void RADIO_EVENT(void)
 		RadioWriteRegisterSingle(STATUS, status);
 		
 		RadioClearTX();
+		TransmissionInProgress = 0;
 	}
 	
 	// Check if sending data was successful
@@ -685,7 +688,7 @@ void RADIO_EVENT(void)
 			// TODO: triple buffering? or maybe another solution
 			while ((fifoStatus & (1<<RX_EMPTY)) == 0);
 
-		// Tell listeners that we have received the data, make sure, however, that lenght is not 0
+		// Tell listeners that we have received the data, make sure, however, that length is not 0
 		if(dataLength != 0 && ReceiverCallback) (*ReceiverCallback)(RXBuffer, dataLength);
 	}	
 }
