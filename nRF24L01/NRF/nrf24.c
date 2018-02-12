@@ -96,14 +96,14 @@ void RadioConfig(void)
 	// NOTE (copied from data sheet): If the ACK payload is more than 15 byte in 2Mbps mode the
 	// ARD must be 500?S or more, if the ACK payload is more than 5byte in 1Mbps mode the ARD must be
 	// 500?S or more. In 250kbps mode (even when the payload is not in ACK) the ARD must be 500?S or more.
-	RadioConfigRetransmission(ARD_US_1000, ARC_2);
+	RadioConfigRetransmission(ARD_US_1000, ARC_3);
 	
 	// Configure interrupts settings
 	RadioConfigureInterrupts();
 	
 	// Power and speed settings
 	// 0DBM is more powerful than -18DBM (physics)
-	RadioSetPower(POWER_DBM_0);
+	RadioSetPower(POWER_DMB_MINUS_6);
 	RadioSetSpeed(MBPS_1);
 
 	// Radio channel or the frequency
@@ -576,21 +576,22 @@ void RadioSetDynamicPayload(uint8_t dataPipe, uint8_t onOff)
 	// Data validation
 	if(dataPipe > 5)
 		dataPipe = 5;
-	if(onOff)
-		onOff = 1;
 	
 	// Get the current config so we can modify it
 	uint8_t dynpd = RadioReadRegisterSingle(DYNPD);
 	
 	// Write one to enable; zero to disable dynamic payload with
-	dynpd |= (onOff << dataPipe);
+	if(onOff)
+		dynpd |= (1 << dataPipe);
+	else
+		dynpd &= (1 << dataPipe);
 	
 	// Write value to the device
 	RadioWriteRegisterSingle(DYNPD, dynpd);
 	
 	// To use dynamic payload length it must be enabled in feature registry
 	
-	// Get current FEATURE registry value to modify
+	// Get current FEATURE registry value so we can modify it
 	uint8_t feature = RadioReadRegisterSingle(FEATURE);
 	
 	// If function was called to enable dynamic width, enable it in feature registry
@@ -646,13 +647,13 @@ void RadioSend(uint8_t* data)
 	
 	// 10µs high pulse on CE starts transmission
 	CE_HIGH;
-	_delay_us(11);
-	CE_LOW;
-	
+	_delay_us(10);
+
 	// TX settings delay
 	// NOTE: can be omitted
 	_delay_us(130);
-				
+	CE_LOW;		
+	
 	// Indicate operation
 	TransmissionInProgress = 1;
 	State = TX_MODE;
@@ -715,6 +716,21 @@ void RADIO_EVENT(void)
 	//uart_putc('\n');
 	//_delay_ms(100);
 	
+	// Check if sending data was successful
+	if (DATA_SEND_SUCCESS(status))
+	{
+		// TOCO: ACK with payload handling, just clear the buffer for now
+		RadioClearRX();
+			
+		// Clear flag
+		status |= (1<<TX_DS);
+		RadioWriteRegisterSingle(STATUS, status);
+			
+		TransmissionInProgress = 0;
+		State = STANDBY_1;
+		uart_puts("Data sent successful\n");
+	}
+	
 	// Sending data failed
 	// TODO: handling this event
 	if (MAXIMUM_RETRANSMISSIONS_REACHED(status))
@@ -728,20 +744,6 @@ void RADIO_EVENT(void)
 		State = STANDBY_1;
 		
 		uart_puts("Max retransmissions\n");
-	}
-	
-	// Check if sending data was successful
-	if (DATA_SEND_SUCCESS(status))
-	{
-		// TOCO: ACK with payload handling, just clear the buffer from now
-		RadioClearRX();
-		
-		// Clear flag
-		status |= (1<<TX_DS);
-		RadioWriteRegisterSingle(STATUS, status);
-		
-		TransmissionInProgress = 0;
-		State = STANDBY_1;
 	}
 	
 	// Continuously check if there is any data to be read from the device
