@@ -31,6 +31,11 @@ uint8_t RXBuffer[MAXIMUM_PAYLOAD_SIZE + 1];
 // Pointer to a callback function defined by the user
 static void (*ReceiverCallback)(uint8_t*, uint8_t);
 
+// Device state as a variable
+volatile uint8_t State = POWER_DOWN;
+
+volatile uint8_t Role = ROLE_TRANSMITTER;
+
 // Registers callback function
 void RegisterRadioCallback(void (*callback)(uint8_t*, uint8_t))
 {
@@ -47,7 +52,7 @@ void RadioInitialize(void)
 	DDR(CE_PORT) |= (1<<CE);
 	DDR(CSN_PORT) |= (1<<CSN);
 	
-	// CE does not really matter here but set it anyway
+	// Makes the device enter Standby-I (see data sheet)
 	CE_LOW;
 	
 	// CSN is SS pin, we're not talking to the device right now so set it high
@@ -76,16 +81,12 @@ void RadioConfig(void)
 	// You can configure data pipes like this...
 	//RadioEnableDataPipe(DATA_PIPE_0);
 	//RadioEnableAutoAck(DATA_PIPE_0);
-	//RadioEnableDataPipe(DATA_PIPE_1);
-	//RadioEnableAutoAck(DATA_PIPE_1);
 	
 	// Or like this...
 	RadioConfigDataPipe(DATA_PIPE_0, 1, 1);
-	RadioConfigDataPipe(DATA_PIPE_1, 1, 1);
 	
 	// Payload width can be either static or dynamic 
 	RadioSetDynamicPayload(DATA_PIPE_0, 1);
-	RadioSetDynamicPayload(DATA_PIPE_1, 1);
 	
 	// Common for all the data pipes
 	RadioEnableCRC();
@@ -95,8 +96,9 @@ void RadioConfig(void)
 	// NOTE (copied from data sheet): If the ACK payload is more than 15 byte in 2Mbps mode the
 	// ARD must be 500?S or more, if the ACK payload is more than 5byte in 1Mbps mode the ARD must be
 	// 500?S or more. In 250kbps mode (even when the payload is not in ACK) the ARD must be 500?S or more.
-	RadioConfigRetransmission(ARD_US_500, ARC_1);
+	RadioConfigRetransmission(ARD_US_1000, ARC_2);
 	
+	// Configure interrupts settings
 	RadioConfigureInterrupts();
 	
 	// Power and speed settings
@@ -285,32 +287,48 @@ void RadioSetCRCLength(uint8_t crcLength)
 // Powers up the radio
 void RadioPowerUp(void)
 {
+	// If the device is already powered up don't do anything
+	if (State != POWER_DOWN)
+		return;
+	
 	// Get the current config so we can modify it
 	uint8_t config = RadioReadRegisterSingle(CONFIG);
 	
 	// Set PWR_UP and CE to enter Standby-I
 	config |= (1<<PWR_UP);
-	CE_HIGH;
+	CE_LOW;
 	
 	// Write this config to the device
 	RadioWriteRegisterSingle(CONFIG, config);
 	
 	// Device needs 1.5ms to power up
 	_delay_us(1500);
+	
+	// Set appropriate state
+	State = STANDBY_1;
 }
 
 // Powers down the device
 void RadioPowerDown(void)
 {
+	// If the device has already been powered down don't do anything
+	if (State == POWER_DOWN)
+		return;
+	
 	// Get the current config so we can modify it
 	uint8_t config = RadioReadRegisterSingle(CONFIG);
 	
-	// Clearing PWR_UP bit will make the device enter Power Down mode (data sheet 6.1.1 Figure 3)
+	// Clearing PWR_UP bit will make the device enter PowerDown mode (see data sheet)
 	config &= ~(1<<PWR_UP);
 	
+	// Clear CE line as a matter of principle (don't really matter)
 	CE_LOW;
+	
 	// Save this config to the device
 	RadioWriteRegisterSingle(CONFIG, config);
+	
+	// Set appropriate state
+	State = POWER_DOWN;
 	
 	// Optional: clear device's data buffers 
 	RadioClearRX();
@@ -320,6 +338,10 @@ void RadioPowerDown(void)
 // Sets the role of the module to the transmitter
 void RadioSetRoleTransmitter(void)
 {
+	// No need to change anything
+	if (Role == ROLE_TRANSMITTER)
+		return;
+		
 	// Get the current config so we can modify it
 	uint8_t config = RadioReadRegisterSingle(CONFIG);
 	
@@ -328,11 +350,18 @@ void RadioSetRoleTransmitter(void)
 	
 	// Save this config to the device
 	RadioWriteRegisterSingle(CONFIG, config);
+		
+	// Set appropriate role
+	Role = ROLE_TRANSMITTER;
 }
 
 // Sets the role of the module to the receiver
 void RadioSetRoleReceiver(void)
 {
+	// No need to change anything
+	if(Role == ROLE_RECEIVER)
+		return;
+	
 	// Get the current config so we can modify it
 	uint8_t config = RadioReadRegisterSingle(CONFIG);
 	
@@ -341,39 +370,59 @@ void RadioSetRoleReceiver(void)
 	
 	// Save this config to the device
 	RadioWriteRegisterSingle(CONFIG, config);
+	
+	// Set appropriate role
+	Role = ROLE_RECEIVER;
 }
 
 // Switches into transmitter mode
+// NOTE: What method really does is entering Standby-I, but for the sake of consistency
+//		 it's named how it's named
 void RadioEnterTxMode(void)
 {
-	// TODO: method name possibly misleading. Check the result of loading FIFO with dummy bytes enforce proper mode
-	RadioPowerDown();
+	// Get rid of any data in the device so it's got free buffer to use
+	RadioClearTX();
+	
+	// If set high device would enter Standby-II, which is not efficient in this case
+	CE_LOW;
+	
 	RadioSetRoleTransmitter();
-	RadioPowerUp();
-		
-	// Make the device stay in TX mode
-	// TODO: power saving
-	CE_HIGH;
+	
+	// If the radio needs to be powered up, do it
+	if (State == POWER_DOWN)
+		RadioPowerUp();
+	
+	// Set appropriate state
+	State = STANDBY_1;
 	
 	TransmissionInProgress = 0;
 	ReceivedDataReady = 0;
-	// NOTE: code above will make the device enter Standby-II
-	// OPTIONAL: Load FIFO with some dummy bytes to make the device enter TXMode (130us delay required)
 }
 
 // Switches into receiver mode
 void RadioEnterRxMode(void)
 {
-	RadioPowerDown();
-	RadioSetRoleReceiver();
-	RadioPowerUp();
+	// If the device already is in RX mode or there is a transmission on air, don't do anything
+	if(State == RX_MODE || TransmissionInProgress == 1)
+		return;
 	
-	// High state on CE line will make the device enter proper RX mode
-	// NOTE: This state if power consuming (see [data sheet]Radio control state diagram for more information)
+	RadioSetRoleReceiver();
+	
+	// Clear the device of any unread data
+	RadioClearRX();
+	
+	// If the device is not up already, power it up
+	if(State == POWER_DOWN)
+		RadioPowerUp();
+	
+	// Keeps the device in RX mode. Clear to come back to Standby-I
 	CE_HIGH;
 	
 	// Delay required by the device
 	_delay_us(130);
+	
+	// Set appropriate state
+	State = RX_MODE;
 	
 	// Set initial values
 	TransmissionInProgress = 0;
@@ -576,25 +625,83 @@ void RadioLoadPayload(uint8_t* data, uint8_t length)
 void RadioSend(uint8_t* data)
 {
 	// Wait for previous transmission to end
-	if (TransmissionInProgress == 1)
+	// Also cannot send data when in RX mode
+	// NOTE: before calling make sure that RadioEnterTxMode() had been called
+	if (TransmissionInProgress == 1 || State != STANDBY_1)
 		return;
-		
-	// Now we can send data
-	TransmissionInProgress = 1;
+	
+	// If transmitter mode is already set won't change anything, 
+	// but if receiver mode is set this will set proper mode
+	RadioSetRoleTransmitter();
 	
 	// Get the length of the data 
 	uint8_t dataLength = strlen((char*)data);
 	
 	// Make sure it does not exceed the limit
-	if (dataLength > MAXIMUM_PAYLOAD_SIZE) dataLength = MAXIMUM_PAYLOAD_SIZE;
+	if (dataLength > MAXIMUM_PAYLOAD_SIZE) 
+		dataLength = MAXIMUM_PAYLOAD_SIZE;
 
-	// Keeping CE high makes the device stay in TX mode
-	// TODO: power saving mode
-	CE_HIGH;
-	
-	// Presuming device is in Standby-II
-	// TODO: 
+	// Presuming device is in Standby-I
 	RadioLoadPayload(data, dataLength);
+	
+	// 10µs high pulse on CE starts transmission
+	CE_HIGH;
+	_delay_us(11);
+	CE_LOW;
+	
+	// TX settings delay
+	// NOTE: can be omitted
+	_delay_us(130);
+				
+	// Indicate operation
+	TransmissionInProgress = 1;
+	State = TX_MODE;
+}
+
+uint8_t RadioReadData(void)
+{
+	// Prepare for reading data
+	uint8_t fifoStatus;
+	uint8_t dataLength;
+	do
+	{
+		CSN_LOW;
+		
+		// If using dynamic width
+		SpiShift(R_RX_PL_WID);
+		dataLength = SpiShift(NOP);
+		CSN_HIGH;
+		
+		// If data's too big for the buffer discard it and clear the device buffer
+		if( dataLength > MAXIMUM_PAYLOAD_SIZE)
+		{
+			RadioClearRX();
+			return 0;
+		}
+		
+		// Read payload from the device
+		CSN_LOW;
+		SpiShift(R_RX_PAYLOAD);
+		uint8_t i;
+		for(i = 0; i < dataLength; i++)
+			RXBuffer[i] = SpiShift(NOP);
+		CSN_HIGH;
+		
+		// Add the null character at the end (useful for transmitting strings)
+		RXBuffer[i] = '\0';
+		
+		// Clear the device buffer
+		// TODO: triple buffering
+		RadioClearRX();
+		
+		// TODO: There may be data in buffer that comes from different data pipes
+		fifoStatus = RadioReadRegisterSingle(FIFO_STATUS);
+	}
+	// Read until RX is empty
+	// TODO: triple buffering? or maybe another solution
+	while ((fifoStatus & (1<<RX_EMPTY)) == 0);
+	
+	return dataLength;
 }
 
 // Main event function
@@ -612,24 +719,29 @@ void RADIO_EVENT(void)
 	// TODO: handling this event
 	if (MAXIMUM_RETRANSMISSIONS_REACHED(status))
 	{
-		// Clear IRQ flags
+		// Clear IRQ flag
 		status |= (1<< MAX_RT);
 		RadioWriteRegisterSingle(STATUS, status);
 		
 		RadioClearTX();
 		TransmissionInProgress = 0;
+		State = STANDBY_1;
+		
+		uart_puts("Max retransmissions\n");
 	}
 	
 	// Check if sending data was successful
 	if (DATA_SEND_SUCCESS(status))
 	{
-		TransmissionInProgress = 0;
 		// TOCO: ACK with payload handling, just clear the buffer from now
 		RadioClearRX();
 		
 		// Clear flag
 		status |= (1<<TX_DS);
 		RadioWriteRegisterSingle(STATUS, status);
+		
+		TransmissionInProgress = 0;
+		State = STANDBY_1;
 	}
 	
 	// Continuously check if there is any data to be read from the device
@@ -638,56 +750,17 @@ void RADIO_EVENT(void)
 		ReceivedDataReady = 1;
 	}
 	
-	
 	if (ReceivedDataReady)
 	{
 		// Indicate we have received data
 		ReceivedDataReady = 0;
 		
-		// Prepare for reading data
-		uint8_t fifoStatus;
-		uint8_t dataLength;
-		do 
-		{
-			// Clear flag
-			RadioWriteRegisterSingle(STATUS, (1<<RX_DR));
-			
-			CSN_LOW;
-			
-			// If using dynamic width
-			SpiShift(R_RX_PL_WID);
-			dataLength = SpiShift(NOP);
-			CSN_HIGH;
-			
-			// If data's too big for the buffer discard it and clear the device buffer
-			if( dataLength > MAXIMUM_PAYLOAD_SIZE)
-			{ 
-				RadioClearRX();
-				break;
-			}
-			
-			// Read payload from the device
-			CSN_LOW;
-			SpiShift(R_RX_PAYLOAD);
-			uint8_t i;
-			for(i = 0; i < dataLength; i++)
-				RXBuffer[i] = SpiShift(NOP);
-			CSN_HIGH;
-			
-			// Add the null character at the end (useful for transmitting strings)
-			RXBuffer[i] = '\0';
-			
-			// Clear the device buffer
-			// TODO: triple buffering
-			RadioClearRX();
-			
-			// TODO: There may be data in buffer that come from different data pipes
-			fifoStatus = RadioReadRegisterSingle(FIFO_STATUS);
-		} 
-			// Read until RX is empty
-			// TODO: triple buffering? or maybe another solution
-			while ((fifoStatus & (1<<RX_EMPTY)) == 0);
-
+		// Clear flag
+		status |= (1<<RX_DR);
+		RadioWriteRegisterSingle(STATUS, status);
+		
+		uint8_t dataLength = RadioReadData();		
+		
 		// Tell listeners that we have received the data, make sure, however, that length is not 0
 		if(dataLength != 0 && ReceiverCallback) (*ReceiverCallback)(RXBuffer, dataLength);
 	}	
@@ -793,4 +866,20 @@ void RadioPrintConfig(void(*printString)(char*), void(*printChar)(char), void(*p
 	printString("FEATURE: ");
 	print(buf, 1, printNumber, printChar);
 
+	// Debugging purpose 
+	printString("TransmissionInProgress: ");
+	printNumber(TransmissionInProgress, 10);
+	printChar('\n');
+
+	printString("ReceivedDataReady: ");
+	printNumber(ReceivedDataReady, 10);
+	printChar('\n');
+	
+	printString("State: ");
+	printNumber(State, 10);
+	printChar('\n');
+	
+	printString("Role: ");
+	printNumber(Role, 10);
+	printChar('\n');
 }

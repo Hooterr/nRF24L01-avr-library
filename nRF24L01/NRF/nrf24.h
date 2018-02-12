@@ -89,6 +89,15 @@ void RadioPrintConfig(void(*printString)(char*), void(*printChar)(char), void(*p
 
 #define IRQ_CLEAR_MASK ((1<<MAX_RT) | (1<<TX_DS) | (1<<RX_DR))
 
+#define POWER_DOWN	1
+#define STANDBY_1	2
+#define STANDBY_2	3
+#define RX_MODE		4
+#define TX_MODE		5
+
+#define ROLE_TRANSMITTER 1
+#define ROLE_RECEIVER	 2
+
 #if USE_IRQ == 1
 //////////////////////////////////////////////////////////////////////////
 // INTERRUPT CONFIGURATOR      
