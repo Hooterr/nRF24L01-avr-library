@@ -35,7 +35,7 @@ int main(void)
 	role = RECEIVER;
 	RadioEnterRxMode();
 	RadioPrintConfig(uart_puts, uart_putc, uart_putint);
-	//uart_puts("Device is now in transmitter mode.\n\t'set tx' - transmitter mode\n\t'set rx' - receiver mode\n");
+	uart_puts("Device is now in transmitter mode.\n\t'set tx' - transmitter mode\n\t'set rx' - receiver mode\n");
 
 	while (1) 
     {

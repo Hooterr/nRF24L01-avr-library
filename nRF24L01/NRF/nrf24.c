@@ -58,8 +58,23 @@ void RadioInitialize(void)
 	// CSN is SS pin, we're not talking to the device right now so set it high
 	CSN_HIGH;
 	
+	#if USE_IRQ != 0
+	// IRQ mode
+	
+	// IRQ pin input
+	DDR(IRQ_PORT) &= ~(1<<IRQ);
+	
+	// Interrupt configuration TODO
+	
+	// using PD7 for now
+	PCICR |= (1<<PCIE2);
+	PCMSK2 |= (1<<PCINT23);
+
+
+	#endif
+	
 	// Start up delay
-	_delay_ms(100);
+	_delay_ms(200);
 	
 	// Configure the device ready to use
 	RadioConfig();
@@ -96,20 +111,20 @@ void RadioConfig(void)
 	// NOTE (copied from data sheet): If the ACK payload is more than 15 byte in 2Mbps mode the
 	// ARD must be 500?S or more, if the ACK payload is more than 5byte in 1Mbps mode the ARD must be
 	// 500?S or more. In 250kbps mode (even when the payload is not in ACK) the ARD must be 500?S or more.
-	RadioConfigRetransmission(ARD_US_1000, ARC_3);
+	RadioConfigRetransmission(ARD_US_4000, ARC_10);
 	
 	// Configure interrupts settings
 	RadioConfigureInterrupts();
 	
 	// Power and speed settings
 	// 0DBM is more powerful than -18DBM (physics)
-	RadioSetPower(POWER_DMB_MINUS_6);
-	RadioSetSpeed(MBPS_1);
+	RadioSetPower(POWER_DBM_0);
+	RadioSetSpeed(MBPS_2);
 
 	// Radio channel or the frequency
 	// Device is frequency is equal to: 2.4GHz + (this method's argument value)MHz
-	// Here: 2.410 GHz
-	RadioSetChannel(10);
+	// Here: 2.450 GHz
+	RadioSetChannel(50);
 	
 	// Clear device's data buffers 
 	RadioClearRX();
@@ -181,7 +196,19 @@ void RadioConfigureInterrupts(void)
 	uint8_t config = RadioReadRegisterSingle(CONFIG);
 
 	// RADIO_CONFIG is defined based on whether the user wants to enable interrupts or not
-	config |= RADIO_CONFIG;
+	#if USE_IRQ == 0
+	// Pooling
+	
+	// In pooling mode write 111 to disable interrupts
+	config |= INTERRUPTS_MASK;
+	
+	#else
+	// IRQ mode
+	
+	// In interrupt mode write 000 to enable interrupts
+	config &= ~INTERRUPTS_MASK;
+	
+	#endif
 	
 	// Save it to the device
 	RadioWriteRegisterSingle(CONFIG, config);
@@ -380,12 +407,12 @@ void RadioSetRoleReceiver(void)
 //		 it's named how it's named
 void RadioEnterTxMode(void)
 {
-	// Get rid of any data in the device so it's got free buffer to use
-	RadioClearTX();
-	
 	// If set high device would enter Standby-II, which is not efficient in this case
 	CE_LOW;
 	
+	// Get rid of any data in the device so it's got free buffer to use
+	RadioClearTX();
+
 	RadioSetRoleTransmitter();
 	
 	// If the radio needs to be powered up, do it
@@ -415,7 +442,7 @@ void RadioEnterRxMode(void)
 	if(State == POWER_DOWN)
 		RadioPowerUp();
 	
-	// Keeps the device in RX mode. Clear to come back to Standby-I
+	// Keeps the device in RX mode. Clear to go back to Standby-I
 	CE_HIGH;
 	
 	// Delay required by the device
@@ -627,11 +654,11 @@ void RadioSend(uint8_t* data)
 {
 	// Wait for previous transmission to end
 	// Also cannot send data when in RX mode
-	// NOTE: before calling make sure that RadioEnterTxMode() had been called
+	// NOTE: before calling make sure that RadioEnterTxMode() had been called before
 	if (TransmissionInProgress == 1 || State != STANDBY_1)
 		return;
 	
-	// If transmitter mode is already set won't change anything, 
+	// If transmitter mode is already set this won't change anything, 
 	// but if receiver mode is set this will set proper mode
 	RadioSetRoleTransmitter();
 	
@@ -648,11 +675,11 @@ void RadioSend(uint8_t* data)
 	// 10µs high pulse on CE starts transmission
 	CE_HIGH;
 	_delay_us(10);
-
+	CE_LOW;	
+	
 	// TX settings delay
 	// NOTE: can be omitted
-	_delay_us(130);
-	CE_LOW;		
+	//_delay_us(120);
 	
 	// Indicate operation
 	TransmissionInProgress = 1;
@@ -672,10 +699,13 @@ uint8_t RadioReadData(void)
 		SpiShift(R_RX_PL_WID);
 		dataLength = SpiShift(NOP);
 		CSN_HIGH;
-		
+
 		// If data's too big for the buffer discard it and clear the device buffer
 		if( dataLength > MAXIMUM_PAYLOAD_SIZE)
 		{
+			// Debugging
+			uart_puts("data's too big. Quitting");
+			
 			RadioClearRX();
 			return 0;
 		}
@@ -705,67 +735,98 @@ uint8_t RadioReadData(void)
 	return dataLength;
 }
 
+volatile uint8_t Irq = 0;
+
 // Main event function
 // Should be called as often as possible in program's main loop
 void RADIO_EVENT(void)
 {
-	// Pooling mode for now
-	uint8_t status = RadioReadRegisterSingle(STATUS);
-	
+	//uint8_t status = RadioReadRegisterSingle(STATUS);
+			
 	//uart_putint(status, 16);
 	//uart_putc('\n');
 	//_delay_ms(100);
-	
-	// Check if sending data was successful
-	if (DATA_SEND_SUCCESS(status))
+#if USE_IRQ == 0
 	{
-		// TOCO: ACK with payload handling, just clear the buffer for now
-		RadioClearRX();
+#else
+	if (Irq)
+	{
+		Irq = 0;
+#endif
+		// Get the register to check for any events
+		uint8_t status = RadioReadRegisterSingle(STATUS);
+	
+		//uart_putint(status, 16);
+		//uart_putc('\n');
+		//_delay_ms(100);
+	
+		// Check if sending data was successful
+		if (DATA_SEND_SUCCESS(status))
+		{
+			// TOCO: ACK with payload handling, just clear the buffer for now
+			RadioClearRX();
 			
-		// Clear flag
-		status |= (1<<TX_DS);
-		RadioWriteRegisterSingle(STATUS, status);
+			// Clear flag
+			status |= (1<<TX_DS);
+			RadioWriteRegisterSingle(STATUS, status);
 			
-		TransmissionInProgress = 0;
-		State = STANDBY_1;
-		uart_puts("Data sent successful\n");
-	}
+			TransmissionInProgress = 0;
+			State = STANDBY_1;
+			uart_puts("Data sent successfully\n");
+		}
 	
-	// Sending data failed
-	// TODO: handling this event
-	if (MAXIMUM_RETRANSMISSIONS_REACHED(status))
-	{
-		// Clear IRQ flag
-		status |= (1<< MAX_RT);
-		RadioWriteRegisterSingle(STATUS, status);
+		// Sending data failed
+		// TODO: handling this event
+		if (MAXIMUM_RETRANSMISSIONS_REACHED(status))
+		{
+			// Clear IRQ flag
+			status |= (1<< MAX_RT);
+			RadioWriteRegisterSingle(STATUS, status);
 		
-		RadioClearTX();
-		TransmissionInProgress = 0;
-		State = STANDBY_1;
+			RadioClearTX();
+			TransmissionInProgress = 0;
+			State = STANDBY_1;
 		
-		uart_puts("Max retransmissions\n");
-	}
+			uart_puts("Max retransmissions\n");
+		}
 	
-	// Continuously check if there is any data to be read from the device
-	if(DATA_RECEIVED(status))
-	{
-		ReceivedDataReady = 1;
-	}
+		// Continuously check if there is any data to be read from the device
+		if(DATA_RECEIVED(status))
+		{
+			ReceivedDataReady = 1;
+		}
 	
-	if (ReceivedDataReady)
+		if (ReceivedDataReady)
+		{
+			// Indicate we have received data
+			ReceivedDataReady = 0;
+		
+			// Clear flag
+			status |= (1<<RX_DR);
+			RadioWriteRegisterSingle(STATUS, status);
+		
+			uint8_t dataLength = RadioReadData();		
+		
+			// Tell listeners that we have received the data, however make sure that length is not 0
+			if(dataLength != 0 && ReceiverCallback) 
+				(*ReceiverCallback)(RXBuffer, dataLength);
+		}	
+	}
+}
+
+// IRQ procedure
+ISR(PCINT2_vect)
+{
+	if((PIN(IRQ_PORT) & (1 << IRQ)))
 	{
-		// Indicate we have received data
-		ReceivedDataReady = 0;
+		/* LOW to HIGH pin change */
+	}
+	else
+	{		
+		Irq = 1;
+		/* HIGH to LOW pin change */
 		
-		// Clear flag
-		status |= (1<<RX_DR);
-		RadioWriteRegisterSingle(STATUS, status);
-		
-		uint8_t dataLength = RadioReadData();		
-		
-		// Tell listeners that we have received the data, make sure, however, that length is not 0
-		if(dataLength != 0 && ReceiverCallback) (*ReceiverCallback)(RXBuffer, dataLength);
-	}	
+	}
 }
 
 //////////////////////////////////////////////////////////////////////////

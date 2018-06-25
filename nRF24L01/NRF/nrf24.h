@@ -17,13 +17,17 @@
 #define CSN_PORT B
 #define CSN 1
 
+//pcint23
+#define IRQ_PORT D
+#define IRQ 7
+
 #define TX_ADDRESS_LENGTH 5
 #define RX_ADDRESS_LENGTH 5
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // define using IRQ (1 - use IRQ, 0 - don't use IRQ)															//
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-#define USE_IRQ 0
+#define USE_IRQ 1
 
 //////////////////////////////////////////////////////////////////////////
 // METHODS
@@ -79,7 +83,6 @@ void RadioPrintConfig(void(*printString)(char*), void(*printChar)(char), void(*p
 
 #define DATA_RECEIVED_MASK (1<<RX_DR)
 #define DATA_SENT_MASK (1<<TX_DS)
-#define ACK_RECEIVED_MASK (1<<TX_DS)
 #define MAX_RETRANSMISSION_MASK (1<<MAX_RT)
 
 #define MAXIMUM_RETRANSMISSIONS_REACHED(x) (x & MAX_RETRANSMISSION_MASK)
@@ -98,56 +101,18 @@ void RadioPrintConfig(void(*printString)(char*), void(*printChar)(char), void(*p
 #define ROLE_TRANSMITTER 1
 #define ROLE_RECEIVER	 2
 
-#if USE_IRQ == 1
-//////////////////////////////////////////////////////////////////////////
-// INTERRUPT CONFIGURATOR      
-// 1 - active       
-// 0 - not active      
-//////////////////////////////////////////////////////////////////////////
-#define USE_MAX_RETRANSMISION_IRQ   0
-#define USE_END_OF_TRANSMISSION_IRQ 0
-#define USE_DATA_READY_TO_READ_IRQ  0
-
-
-#if USE_MAX_RETRANSMISION_IRQ == 1
-#define MAX_RT_MASK (0<<MASK_MAX_RT)
-#else
-#define MAX_RT_MASK (1<<MASK_MAX_RT)
-#endif
-
-#if USE_END_OF_TRANSMISSION_IRQ == 1
-#define TX_DS_MASK (0<<MASK_TX_DS)
-#else
-#define TX_DS_MASK (1<<MASK_TX_DS)
-#endif
-
-#if USE_DATA_READY_TO_READ_IRQ == 1
-#define RX_DR_MASK (0<<MASK_RX_DR)
-#else
-#define RX_DR_MASK (1<<MASK_RX_DR)
-#endif
-
-#define RADIO_CONFIG ( RX_DR_MASK | MAX_RT_MASK | TX_DS_MASK )
-
-#else
-
-#define MAX_RT_MASK (1<<MASK_MAX_RT)
-#define TX_DS_MASK (1<<MASK_TX_DS)
-#define RX_DR_MASK (1<<MASK_RX_DR)
-#define RADIO_CONFIG ( RX_DR_MASK | MAX_RT_MASK | TX_DS_MASK )
-
-#endif
+#define INTERRUPTS_MASK	0x70
 
 //////////////////////////////////////////////////////////////////////////
 // COMPILE TIME ERROR CHECKS
 //////////////////////////////////////////////////////////////////////////
 
 #if (RX_ADDRESS_LENGTH < 3 || RX_ADDRESS_LENGTH > 5)
-#error "RX_ADDRESS_LENGHT must be between 3 and 5!"
+#error "RX_ADDRESS_LENGTH must be between 3 and 5!"
 #endif 
 
 #if (TX_ADDRESS_LENGTH < 3 || TX_ADDRESS_LENGTH > 5)
-#error "TX_ADDRESS_LENGHT must be between 3 and 5!"
+#error "TX_ADDRESS_LENGTH must be between 3 and 5!"
 #endif
 
 
